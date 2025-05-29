@@ -210,6 +210,7 @@ aws iam create-role \
 ```
 
 ### Access Policy
+
 Create the access policy, it defines two statements one for S3 object actions and another for bucket-level actions. This policy allows the role to perform necessary operations on the specified S3 bucket.
 
 ```bash
@@ -361,6 +362,59 @@ python generate_notebook.py
 ```
 
 Open the [generated notebook](./notebooks/verify_setup.ipynb) in your Jupyter environment.
+
+## Snowflake Integration
+
+To integrate Snowflake with Open Catalog, you can use the Snowflake CLI to create a connection to the Open Catalog. This allows you to query and manage the Apache Iceberg tables directly from Snowflake.
+
+> [!IMPORTANT]
+> You would have set the PRIVATE_KEY_PASSPHRASE in the `.env` file, which is used to authenticate with Snowflake Open Catalog. Unset and set the right one if you are going to use a different passphrase and key based authentication.
+
+Verify if you are able to connect to your Snowflake account:
+
+```bash
+snow connection test -c "${SNOWFLAKE_CONNECTION_NAME}"
+```
+
+Set the database where you want to create the Iceberg tables to `$SNOWFLAKE_DATABASE`:
+
+e.g. 
+
+```bash
+export SNOWFLAKE_DATABASE="kamesh_demos"
+```
+
+Extract client ID, client secret, and principal name from the principal JSON file created earlier:
+
+```bash
+export CLIENT_ID=$(jq -r '.clientId' "${WORK_DIR}/principal.json")
+export CLIENT_SECRET=$(jq -r '.clientSecret' "${WORK_DIR}/principal.json")
+```
+
+```bash
+snow sql -c "${SNOWFLAKE_CONNECTION_NAME}" \
+  --variable="database_name=${SNOWFLAKE_DATABASE}" \
+  --variable="schema_name=iceberg" \
+  --variable="catalog_name=${OC_CATALOG_NAME:-polardb}" \
+  --variable="catalog_uri=${OC_API_URL}/polaris/api/catalog" \
+  --variable="client_id=${CLIENT_ID}" \
+  --variable="client_secret=${CLIENT_SECRET}" \
+  --filename "$PWD/scripts/snowflake_integration.sql"
+```
+
+Let us query the iceberg table created in the previous step:
+
+```bash
+snow sql  \
+  -c "${SNOWFLAKE_CONNECTION_NAME}" \
+  -q "select * from kamesh_demos.iceberg.sflabs_oc_pol_demo_fruits"
+```
+
+```bash
+snow sql  \
+  -c "${SNOWFLAKE_CONNECTION_NAME}" \
+  -q "select * from kamesh_demos.iceberg.sflabs_oc_pol_demo_penguins limit 10"
+```
 
 ## Cleanup
 To clean up the resources created during this tutorial, you can run the following commands:
