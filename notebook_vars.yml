@@ -1,0 +1,34 @@
+# Variables for materializing verify_setup.ipynb.j2 Jinja template
+#
+# Environment Variable Format:
+# - Variables can be set via environment variables using the pattern: ${VAR_NAME}
+# - If environment variable is not set, the default value specified here will be used
+# - Example: ${OC_API_URL:-"https://your-instance.snowflakecomputing.com/polaris"} uses env var or default
+# - Boolean values should be lowercase: true/false
+# - Paths should use forward slashes, even on Windows
+
+notebook_vars:
+    # Working directory path where principal.txt and other files are stored
+    # Environment variable: WORK_DIR
+    # Default: .work
+    work_dir: "${WORK_DIR:-.work}"
+
+    # Open Catalog Polaris API base URL (without /api/catalog suffix)
+    # Environment variable: OC_API_URL
+    # Example: https://your-instance.snowflakecomputing.com/polaris
+    oc_api_url: "${OC_API_URL:-https://your-instance.snowflakecomputing.com/polaris}"
+
+    # Catalog name - should match the catalog created in Polaris
+    # Environment variable: OC_CATALOG_NAME
+    # Default: polardb
+    oc_catalog_name: "${OC_CATALOG_NAME:-polardb}"
+
+    # Namespace to create and work with in the catalog
+    # Environment variable: DEMO_NAMESPACE
+    # Default: demo
+    demo_namespace: "${DEMO_NAMESPACE:-demo}"
+
+    # Table name to create for testing
+    # Environment variable: DEMO_TABLE_NAME
+    # Default: fruits
+    demo_table_name: "${DEMO_TABLE_NAME:-fruits}"
