@@ -49,6 +49,7 @@ OC_CATALOG_NAME="polardb"
 OC_ADMIN_USER_NAME="super_user"
 ```
 
+
 Create the `.work` directory with right permissions:
 
 ```bash
@@ -65,8 +66,83 @@ source .env
 > Using [direnv](https://direnv.net/) can help manage environment variables automatically when you enter the directory.
 > Be sure to hook direnv into your shell by adding the following line to your shell configuration file (e.g., `.bashrc`, `.zshrc`) using the  [guide](https://direnv.net/docs/hook.html).
 
+## Get the Access Token
 
-## S3 bucket
+To authenticate with Open Catalog, you need to generate an access token using the Snowflake CLI. This token will be used in subsequent API calls.
+
+To generate the access token, you can use the following command. This command generates a JWT token and then uses it to request an access token from the Open Catalog API.
+
+```bash
+export JWT_TOKEN=$(snow connection generate-jwt)
+```
+
+Then, use the generated JWT token to get the access token using the Open Catalog API:
+
+```bash
+export ACCESS_TOKEN=$(http --form POST "${OC_API_URL}/polaris/api/catalog/v1/oauth/tokens" \
+     Accept:application/json \
+     scope="session:role:POLARIS_ACCOUNT_ADMIN" \
+     grant_type="client_credentials" \
+     client_secret="$JWT_TOKEN" | jq -r ".access_token")
+```
+
+> [!IMPORTANT]
+> Whenever you get Unauthorized error, you need to regenerate the JWT token and access token.
+
+## Catalog
+
+```bash
+export AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query 'Account' --output text)"
+export OC_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/${OC_STORAGE_AWS_ROLE_NAME}"
+```
+
+### List Catalogs
+
+```bash
+polaris \
+  --base-url="${OC_API_URL}/polaris" \
+  --access-token="${ACCESS_TOKEN}" \
+  catalogs list 
+```
+
+## Create catalog
+
+```bash
+polaris \
+  --base-url="${OC_API_URL}/polaris" \
+  --access-token="${ACCESS_TOKEN}" \
+  catalogs create "${OC_CATALOG_NAME:-polardb}" \
+  --type="INTERNAL" \
+  --storage-type="S3" \
+  --role-arn="${OC_ROLE_ARN}" \
+  --external-id="${AWS_EXTERNAL_ID}" \
+  --region="${AWS_REGION:-us-west-2}" \
+  --default-base-location="s3://${OC_STORAGE_BUCKET_NAME}"
+```
+
+Get Catalog Information for use in the next steps:
+
+```bash
+polaris \
+  --base-url="${OC_API_URL}/polaris" \
+    --access-token="${ACCESS_TOKEN}" \
+    catalogs list | jq --arg catalog_name "${OC_CATALOG_NAME:-polardb}" '. | select(.name==$catalog_name)' > "${WORK_DIR}/catalog-info.json"
+```
+
+Verify catalog information:
+
+```bash
+jq . "${WORK_DIR}/catalog-info.json"
+```
+
+## Create Related AWS Resources
+
+Create the necessary AWS resources to support the Open Catalog integration, including an S3 bucket for storage and an IAM role with appropriate policies. 
+
+> [!NOTE]
+> This step is optional if you already have an S3 bucket and IAM role set up for Open Catalog.
+
+### S3 bucket
 Create an S3 bucket to store the catalog data. You can use any S3-compatible storage service.
 
 ```bash
@@ -81,12 +157,15 @@ First, generate a unique external ID to use in the trust policy for the IAM role
 
 ```bash
 export AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query 'Account' --output text)"
+export OC_AWS_USER_ARN=$(jq -r '.storageConfigInfo.userArn' "${WORK_DIR}/catalog-info.json")
+export OC_AWS_EXTERNAL_ID=$(jq -r '.storageConfigInfo.externalId' "${WORK_DIR}/catalog-info.json")
 ```
 
 ### Trust Policy
 
 > [!NOTE]
 > We will update the trust policy later to allow Open Catalog to assume the role.
+> We also add the root user for the AWS account to allow testing the setup from local machine which has access to the AWS account.
 
 Create the IAM role with trust policy:
 
@@ -100,12 +179,13 @@ cat > "${WORK_DIR}/trust-policy.json" <<EOF
       "Action": "sts:AssumeRole",
       "Principal": {
         "AWS": [
-          "arn:aws:iam::${AWS_ACCOUNT_ID}:root"
+          "arn:aws:iam::${AWS_ACCOUNT_ID}:root",
+          "${OC_AWS_USER_ARN}"
         ]
       },
       "Condition": {
         "StringEquals": {
-          "sts:ExternalId": "will be updated"
+          "sts:ExternalId": "${OC_AWS_EXTERNAL_ID}"
         }
       }
     }
@@ -113,6 +193,13 @@ cat > "${WORK_DIR}/trust-policy.json" <<EOF
 }
 EOF
 ```
+
+Verify the trust policy:
+
+```bash
+jq . "${WORK_DIR}/trust-policy.json"
+```
+
 
 Create the IAM role with the trust policy:
 
@@ -161,6 +248,12 @@ cat > "${WORK_DIR}/s3-access-policy.json" <<EOF
 EOF
 ```
 
+Verify the access policy:
+
+```bash
+jq . "${WORK_DIR}/s3-access-policy.json"
+```
+
 Create the policy in AWS:
 
 ```bash
@@ -175,140 +268,11 @@ Finally Attach the policy to the role:
 aws iam attach-role-policy \
   --role-name "${OC_STORAGE_AWS_ROLE_NAME}" \
   --policy-arn "arn:aws:iam::${AWS_ACCOUNT_ID}:policy/${OC_STORAGE_AWS_ROLE_POLICY_NAME}"
-```
-
-Finally, export the role ARN to use in the Open Catalog CLI commands:
-
-```bash
-export OC_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/${OC_STORAGE_AWS_ROLE_NAME}"
-```
-
-## Get the Access Token
-
-To authenticate with Open Catalog, you need to generate an access token using the Snowflake CLI. This token will be used in subsequent API calls.
-
-To generate the access token, you can use the following command. This command generates a JWT token and then uses it to request an access token from the Open Catalog API.
-
-```bash
-export JWT_TOKEN=$(snow connection generate-jwt)
-```
-
-Then, use the generated JWT token to get the access token using the Open Catalog API:
-
-```bash
-export ACCESS_TOKEN=$(http --form POST "${OC_API_URL}/polaris/api/catalog/v1/oauth/tokens" \
-     Accept:application/json \
-     scope="session:role:POLARIS_ACCOUNT_ADMIN" \
-     grant_type="client_credentials" \
-     client_secret="$JWT_TOKEN" | jq -r ".access_token")
-```
-
-> [!IMPORTANT]
-> Whenever you get Unauthorized error, you need to regenerate the JWT token and access token.
-
-## Catalog
-
-
-```bash
-export AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query 'Account' --output text)"
-export OC_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/${OC_STORAGE_AWS_ROLE_NAME}"
-```
-
-### List Catalogs
-
-```bash
-polaris \
-  --base-url="${OC_API_URL}/polaris" \
-  --access-token="${ACCESS_TOKEN}" \
-  catalogs list 
-```
-
-## Create catalog
-
-```bash
-polaris \
-  --base-url="${OC_API_URL}/polaris" \
-  --access-token="${ACCESS_TOKEN}" \
-  catalogs create "${OC_CATALOG_NAME:-polardb}" \
-  --type="INTERNAL" \
-  --storage-type="S3" \
-  --role-arn="${OC_ROLE_ARN}" \
-  --external-id="${AWS_EXTERNAL_ID}" \
-  --region="${AWS_REGION:-us-west-2}" \
-  --default-base-location="s3://${OC_STORAGE_BUCKET_NAME}"
-```
-
-> [!NOTE]
-> **DEBUG**
-> ```bash
-> http -v POST  "${OC_API_URL}/polaris/api/management/v1/catalogs" \
->   Accept:application/json \
->   Authorization:"Bearer $ACCESS_TOKEN"  < "$PWD/work/payload.json"
-> ```
-
-Update AWS IAM Role trust policy to allow Open Catalog to assume the role:
-
-Get Catalog Information:
-
-```bash
-polaris \
-  --base-url="${OC_API_URL}/polaris" \
-    --access-token="${ACCESS_TOKEN}" \
-    catalogs list | jq --arg catalog_name "${OC_CATALOG_NAME:-polardb}" '. | select(.name==$catalog_name)' > "${WORK_DIR}/catalog-info.json"
-  ```
-
-Update the trust policy to allow Open Catalog to assume the role:
-
-```bash
-export OC_AWS_USER_ARN=$(jq -r '.storageConfigInfo.userArn' "${WORK_DIR}/catalog-info.json")
-export AWS_EXTERNAL_ID=$(jq -r '.storageConfigInfo.externalId' "${WORK_DIR}/catalog-info.json")
-```
-
-```bash
-cat > "${WORK_DIR}/trust-policy.json" <<EOF
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": "sts:AssumeRole",
-      "Principal": {
-        "AWS": [
-          "arn:aws:iam::${AWS_ACCOUNT_ID}:root",
-          "${OC_AWS_USER_ARN}"
-        ]
-      },
-      "Condition": {
-        "StringEquals": {
-          "sts:ExternalId": "${AWS_EXTERNAL_ID}"
-        }
-      }
-    }
-  ]
-}
-EOF
-```
-
-```bash
-aws iam update-assume-role-policy \
-  --role-name "${OC_STORAGE_AWS_ROLE_NAME}" \
-  --policy-document "file://${WORK_DIR}/trust-policy.json"
 ``` 
 
 ## Principal
 
-List all principals, (Errors out if no principals are created yet):
-
-> [!NOTE]
-> **DEBUG**
-> This is not working and unable to list principals
-> ```bash
-> Exception when communicating with the Polaris server. 1 validation error for Principal
-> name
-> Value error, must validate the regular expression /^(?!\s*[s|S][y|Y][s|S][t|T][e|E][m|M]\$).*$/ [type=value_error, input_value='SYSTEM$USER_PRINCIPAL_A3...FB5CBC7313E140E30E9A29A', input_type=str]
->    For further information visit https://errors.pydantic.dev/2.11/v/value_error
-> ```
->
+List existing principals in the Polaris catalog:
 
 ```bash
 polaris \
@@ -317,7 +281,10 @@ polaris \
     principals list
 ```
 
-Create a principal named `${OC_CATALOG_NAME}-admin`:
+Create a principal named `${OC_ADMIN_USER_NAME}`:
+
+> [!NOTE]
+> This command creates a new principal in the Polaris catalog, which represents a user or service that can interact with the catalog. The response will include the principal's credentials (`clientId` and `clientSecret`), which can be saved for later use.
 
 ```bash
 polaris \
@@ -326,16 +293,16 @@ polaris \
     principals create "${OC_ADMIN_USER_NAME}" | jq -r . > "${WORK_DIR}/principal.json"
 ```
 
-Create a Principal role named "${OC_CATALOG_NAME}-admin":
+Create a Principal role named "${OC_CATALOG_NAME}_admin":
 
 ```bash
 polaris \
     --base-url="${OC_API_URL}/polaris" \
     --access-token="${ACCESS_TOKEN}" \
-    principal-roles create "${OC_CATALOG_NAME}-admin"
+    principal-roles create "${OC_CATALOG_NAME}_admin"
 ```
 
-Now grant that Principal role `${OC_CATALOG_NAME}-admin`  to the Principal `${OC_ADMIN_USER_NAME}`:
+Now grant that Principal role `${OC_CATALOG_NAME}_admin`  to the Principal `${OC_ADMIN_USER_NAME}`:
 
 ```bash
 polaris \
@@ -343,12 +310,12 @@ polaris \
     --access-token="${ACCESS_TOKEN}" \
     principal-roles grant \
       --principal "${OC_ADMIN_USER_NAME}" \
-      "${OC_CATALOG_NAME}-admin"
+      "${OC_CATALOG_NAME}_admin"
 ```
 
 ## Catalog
 
-Create a catalog role named `${OC_CATALOG_NAME}_catalog_admins`:
+Create a catalog role named `${OC_CATALOG_NAME}_catalog_admin`:
 
 ```bash
 polaris \
@@ -356,10 +323,10 @@ polaris \
     --access-token="${ACCESS_TOKEN}" \
     catalog-roles create \
     --catalog "${OC_CATALOG_NAME:-polardb}" \
-    ${OC_CATALOG_NAME}_catalog_admins
+    "${OC_CATALOG_NAME}_catalog_admin"
 ```
 
-Grant the catalog role `${OC_CATALOG_NAME}_catalog_admins` to the Principal Role `${OC_CATALOG_NAME}-admin`:
+Grant the catalog role `${OC_CATALOG_NAME}_catalog_admin` to the Principal Role `${OC_CATALOG_NAME}_admin`:
 
 ```bash
 polaris \
@@ -367,13 +334,13 @@ polaris \
     --access-token="${ACCESS_TOKEN}" \
     catalog-roles grant \
     --catalog "${OC_CATALOG_NAME:-polardb}" \
-    --principal-role "${OC_CATALOG_NAME}-admin" \
-    ${OC_CATALOG_NAME}_catalog_admins
+    --principal-role "${OC_CATALOG_NAME}_admin" \
+    "${OC_CATALOG_NAME}_catalog_admin"
 ```
 
 ## Privileges
 
-Grant the privilege `CATALOG_MANAGE_CONTENT` to the catalog role `${OC_CATALOG_NAME}_catalog_admins` on the catalog `${OC_CATALOG_NAME:-polardb}`
+Grant the privilege `CATALOG_MANAGE_CONTENT` to the catalog role `${OC_CATALOG_NAME}_catalog_admin` on the catalog `${OC_CATALOG_NAME:-polardb}`
 
 ```bash
 polaris \
@@ -381,7 +348,7 @@ polaris \
     --access-token="${ACCESS_TOKEN}" \
     privileges catalog grant \
     --catalog "${OC_CATALOG_NAME:-polardb}" \
-    --catalog-role "${OC_CATALOG_NAME}_catalog_admins" \
+    --catalog-role "${OC_CATALOG_NAME}_catalog_admin" \
     CATALOG_MANAGE_CONTENT
 ```
 
@@ -394,6 +361,121 @@ python generate_notebook.py
 ```
 
 Open the [generated notebook](./notebooks/verify_setup.ipynb) in your Jupyter environment.
+
+## Cleanup
+To clean up the resources created during this tutorial, you can run the following commands:
+
+Cleanup Open Catalog resources:
+
+1. Revoke the privilege `CATALOG_MANAGE_CONTENT` from the catalog role `${OC_CATALOG_NAME}_catalog_admins`:
+
+```bash
+polaris \
+    --base-url="${OC_API_URL}/polaris" \
+    --access-token="${ACCESS_TOKEN}" \
+    privileges catalog revoke \
+    --catalog "${OC_CATALOG_NAME:-polardb}" \
+    --catalog-role "${OC_CATALOG_NAME}_catalog_admin" \
+    CATALOG_MANAGE_CONTENT
+```
+
+2. Remove Principal Role `${OC_CATALOG_NAME}_admin` from the catalog role  `${OC_CATALOG_NAME}_catalog_admin`:
+
+```bash
+polaris \
+    --base-url="${OC_API_URL}/polaris" \
+    --access-token="${ACCESS_TOKEN}" \
+    catalog-roles grant \
+    --catalog "${OC_CATALOG_NAME:-polardb}" \
+    --principal-role "${OC_CATALOG_NAME}_admin" \
+    "${OC_CATALOG_NAME}_catalog_admin"
+```
+
+3. Delete the catalog role `${OC_CATALOG_NAME}_catalog_admin`:
+
+```bash
+polaris \
+    --base-url="${OC_API_URL}/polaris" \
+    --access-token="${ACCESS_TOKEN}" \
+    catalog-roles delete \
+    --catalog "${OC_CATALOG_NAME:-polardb}" \
+    "${OC_CATALOG_NAME}_catalog_admin"
+```
+
+4. Revoke the Principal Role `${OC_CATALOG_NAME}_admin` from the Principal `${OC_ADMIN_USER_NAME}`:
+
+```bash
+polaris \
+    --base-url="${OC_API_URL}/polaris" \
+    --access-token="${ACCESS_TOKEN}" \
+    principal-roles revoke \
+      --principal "${OC_ADMIN_USER_NAME}" \
+      "${OC_CATALOG_NAME}_admin"
+```
+
+5. Delete the Principal Role `${OC_CATALOG_NAME}_admin`:
+
+```bash
+polaris \
+    --base-url="${OC_API_URL}/polaris" \
+    --access-token="${ACCESS_TOKEN}" \
+    principal-roles delete "${OC_CATALOG_NAME}_admin"
+```
+
+6. Delete the Principal `${OC_ADMIN_USER_NAME}`:
+
+```bash
+polaris \
+    --base-url="${OC_API_URL}/polaris" \
+    --access-token="${ACCESS_TOKEN}" \
+    principals delete "${OC_ADMIN_USER_NAME}"
+```
+
+>[!NOTE]
+> The namespaces, tables and the holding catalog is not deleted. Clean them up if needed via the OpenCatalog UI.
+
+Clean up all AWS resources created for the Open Catalog integration:
+
+Ensure you have the `$AWS_ACCOUNT_ID` set,
+
+```bash
+export AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query 'Account' --output text)"
+```
+
+1. Delete the S3 bucket and its contents:
+
+```bash
+aws s3 rb "s3://${OC_STORAGE_BUCKET_NAME}" --force
+```
+
+2. Detach the IAM role policy from the role:
+
+```bash
+aws iam detach-role-policy \
+  --role-name "${OC_STORAGE_AWS_ROLE_NAME}" \
+  --policy-arn "arn:aws:iam::${AWS_ACCOUNT_ID}:policy/${OC_STORAGE_AWS_ROLE_POLICY_NAME}"
+```
+
+3. Delete the IAM role:
+
+```bash
+aws iam delete-role \
+  --role-name "${OC_STORAGE_AWS_ROLE_NAME}"
+```
+
+4. Delete the IAM policy:
+
+```bash
+aws iam delete-policy \
+  --policy-arn "arn:aws:iam::${AWS_ACCOUNT_ID}:policy/${OC_STORAGE_AWS_ROLE_POLICY_NAME}"
+```
+
+
+Lastly empty the resources created in the `${WORK_DIR}` directory:
+
+```bash
+find "${WORK_DIR:?}" -name "*.json" -type f -delete
+```
 
 
 ## References
