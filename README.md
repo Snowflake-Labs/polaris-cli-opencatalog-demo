@@ -13,7 +13,12 @@ This tutorial walks through setting up the complete integration, including AWS I
 - [jq](https://stedolan.github.io/jq/download/)
 - [GitHub CLI](https://cli.github.com/)
 
-Completed setting up Snowflake CLI and Open Catalog to auth with Key Pair. If not done, please follow the steps in the [Open Catalog KeyPair](https://other-docs.snowflake.com/en/LIMITEDACCESS/opencatalog/key-pair-auth#before-you-begin).
+## Open Catalog Account
+
+This tutorial needs a Open Catalog account with user who has the role `POLARIS_ACCOUNT_ADMIN` to create catalogs and manage principals.
+
+Ensure you have completed setting up Snowflake CLI and Open Catalog to auth with Key Pair. If not done, please follow the steps in the [Open Catalog KeyPair](https://other-docs.snowflake.com/en/LIMITEDACCESS/opencatalog/key-pair-auth#before-you-begin).
+
 
 ## Install Polaris CLI
 
@@ -327,6 +332,19 @@ polaris \
     "${OC_CATALOG_NAME}_catalog_admin"
 ```
 
+### List
+
+List Catalog Roles in the catalog `${OC_CATALOG_NAME:-polardb}`:
+
+```bash
+polaris \
+    --base-url="${OC_API_URL}/polaris" \
+    --access-token="${ACCESS_TOKEN}" \
+    catalog-roles list "${OC_CATALOG_NAME:-polardb}"
+```
+
+### Grants
+
 Grant the catalog role `${OC_CATALOG_NAME}_catalog_admin` to the Principal Role `${OC_CATALOG_NAME}_admin`:
 
 ```bash
@@ -337,6 +355,18 @@ polaris \
     --catalog "${OC_CATALOG_NAME:-polardb}" \
     --principal-role "${OC_CATALOG_NAME}_admin" \
     "${OC_CATALOG_NAME}_catalog_admin"
+```
+
+#### List
+
+List Catalog Roles in the catalog `${OC_CATALOG_NAME:-polardb}` that is assigned to the Principal role `${OC_CATALOG_NAME}_admin`:
+
+```bash
+polaris \
+    --base-url="${OC_API_URL}/polaris" \
+    --access-token="${ACCESS_TOKEN}" \
+    catalog-roles list \
+    --principal-role "${OC_CATALOG_NAME}_admin" "${OC_CATALOG_NAME:-polardb}"
 ```
 
 ## Privileges
@@ -351,6 +381,31 @@ polaris \
     --catalog "${OC_CATALOG_NAME:-polardb}" \
     --catalog-role "${OC_CATALOG_NAME}_catalog_admin" \
     CATALOG_MANAGE_CONTENT
+```
+
+Add another role, `TABLE_LIST`, to the catalog role `${OC_CATALOG_NAME}_catalog_admin` on the catalog `${OC_CATALOG_NAME:-polardb}`. This role allows listing tables in the catalog.
+
+```bash
+polaris \
+    --base-url="${OC_API_URL}/polaris" \
+    --access-token="${ACCESS_TOKEN}" \
+    privileges catalog grant \
+    --catalog "${OC_CATALOG_NAME:-polardb}" \
+    --catalog-role "${OC_CATALOG_NAME}_catalog_admin" \
+    TABLE_LIST
+```
+
+### List
+
+List Catalog Privileges on a Catalog Role,
+
+```bash
+polaris \
+    --base-url="${OC_API_URL}/polaris" \
+    --access-token="${ACCESS_TOKEN}" \
+    privileges list \
+    --catalog "${OC_CATALOG_NAME:-polardb}" \
+    --catalog-role "${OC_CATALOG_NAME}_catalog_admin"
 ```
 
 ## Verify
