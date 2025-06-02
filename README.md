@@ -17,7 +17,7 @@ This tutorial walks through setting up the complete integration, including AWS I
 
 This tutorial needs a Open Catalog account with user who has the role `POLARIS_ACCOUNT_ADMIN` to create catalogs and manage principals.
 
-Ensure you have completed setting up Snowflake CLI and Open Catalog to auth with Key Pair. If not done, please follow the steps in the [Open Catalog KeyPair](https://other-docs.snowflake.com/en/LIMITEDACCESS/opencatalog/key-pair-auth#before-you-begin).
+Ensure you have completed setting up Snowflake CLI and Open Catalog to auth with Key Pair.
 
 
 ## Install Polaris CLI
