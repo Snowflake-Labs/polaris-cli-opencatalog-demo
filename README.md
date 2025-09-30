@@ -2,7 +2,7 @@
 
 This guide demonstrates how to integrate [Apache Polaris (Incubating)](https://github.com/apache/polaris) CLI with [Snowflake Open Catalog](https://other-docs.snowflake.com/en/opencatalog/overview), Snowflake's managed implementation of Apache Polaris. 
 
-Apache Polaris is an open-source catalog for Apache Iceberg that provides multi-engine interoperability, while Snowflake Open Catalog offers a fully managed version that simplifies deployment and operations. By using the Polaris CLI with Open Catalog, you can programmatically manage catalogs, principals, and access controls in your data lakehouse architecture.
+Apache Polaris is an open-source catalog for Apache Iceberg that provides multi-engine interoperability, while Snowflake Open Catalog offers a fully managed version that simplifies deployment and operations. By using the Polaris CLI with Open Catalog, you can programmatically manage catalogs, service principals, and access controls in your data lakehouse architecture.
 
 This tutorial walks through setting up the complete integration, including AWS IAM configuration, catalog creation, and user management.
 
@@ -15,7 +15,7 @@ This tutorial walks through setting up the complete integration, including AWS I
 
 ## Open Catalog Account
 
-This tutorial needs a Open Catalog account with user who has the role `POLARIS_ACCOUNT_ADMIN` to create catalogs and manage principals.
+This tutorial needs a Open Catalog account with user who has the role `POLARIS_ACCOUNT_ADMIN` to create catalogs and manage service principals.
 
 Ensure you have completed setting up Snowflake CLI and Open Catalog to auth with Key Pair. If not done, please follow the steps in the [Open Catalog KeyPair](https://other-docs.snowflake.com/en/LIMITEDACCESS/opencatalog/key-pair-auth#before-you-begin).
 
@@ -276,9 +276,11 @@ aws iam attach-role-policy \
   --policy-arn "arn:aws:iam::${AWS_ACCOUNT_ID}:policy/${OC_STORAGE_AWS_ROLE_POLICY_NAME}"
 ``` 
 
-## Principal
+## Service principal
 
-List existing principals in the Polaris catalog:
+In Polarisl CLI, you use the `principals` command to manage service principals in Open Catalog.
+
+List existing service principals in Open Catalog:
 
 ```bash
 polaris \
@@ -287,10 +289,10 @@ polaris \
     principals list
 ```
 
-Create a principal named `${OC_ADMIN_USER_NAME}`:
+Create a service principal named `${OC_ADMIN_USER_NAME}`:
 
 > [!NOTE]
-> This command creates a new principal in the Polaris catalog, which represents a user or service that can interact with the catalog. The response will include the principal's credentials (`clientId` and `clientSecret`), which can be saved for later use.
+> This command creates a new service principal in Open Catalog, which represents a user or service that can interact with the catalog. The response will include the service principal's credentials (`clientId` and `clientSecret`), which can be saved for later use.
 
 ```bash
 polaris \
@@ -308,7 +310,7 @@ polaris \
     principal-roles create "${OC_CATALOG_NAME}_admin"
 ```
 
-Now grant that Principal role `${OC_CATALOG_NAME}_admin`  to the Principal `${OC_ADMIN_USER_NAME}`:
+Now grant that Principal role `${OC_CATALOG_NAME}_admin`  to the service principal `${OC_ADMIN_USER_NAME}`:
 
 ```bash
 polaris \
@@ -439,7 +441,7 @@ e.g.
 export SNOWFLAKE_DATABASE="kamesh_demos"
 ```
 
-Extract client ID, client secret, and principal name from the principal JSON file created earlier:
+Extract client ID, client secret, and service principal name from the service principal JSON file created earlier:
 
 ```bash
 export CLIENT_ID=$(jq -r '.clientId' "${WORK_DIR}/principal.json")
@@ -511,7 +513,7 @@ polaris \
     "${OC_CATALOG_NAME}_catalog_admin"
 ```
 
-4. Revoke the Principal Role `${OC_CATALOG_NAME}_admin` from the Principal `${OC_ADMIN_USER_NAME}`:
+4. Revoke the Principal Role `${OC_CATALOG_NAME}_admin` from the service principal `${OC_ADMIN_USER_NAME}`:
 
 ```bash
 polaris \
@@ -531,7 +533,7 @@ polaris \
     principal-roles delete "${OC_CATALOG_NAME}_admin"
 ```
 
-6. Delete the Principal `${OC_ADMIN_USER_NAME}`:
+6. Delete the service principal `${OC_ADMIN_USER_NAME}`:
 
 ```bash
 polaris \
